@@ -14,3 +14,4 @@ node_modules/
 Thumbs.db
 
 backend\app_reviews.parquet
+backend\support_tickets.parquet
