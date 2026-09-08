@@ -27,21 +27,21 @@ def schedule_review(req: ScheduleReviewRequest):
     cur = conn.cursor()
 
     cur.execute(
-        "select id, status, response_payload from actions_log where idempotency_key = %s and status = 'completed';",
+        "select id, status, response_payload from actions_log where idempotency_key = %s;",
         (idempotency_key,)
     )
     existing = cur.fetchone()
     if existing:
+        action_id, status, response = existing
         cur.close()
         conn.close()
-        return {
-            "status": "already_exists",
-            "message": "This action was already performed - returning original result, not repeating it.",
-            "original_result": existing[2],
-        }
+        if status == "completed":
+            return {"status": "already_exists", "message": "Already executed.", "original_result": response}
+        elif status == "pending_approval":
+            return {"status": "pending_approval", "action_id": str(action_id), "message": "Awaiting human approval - not yet executed."}
 
     cur.execute(
-        "select theme_label, rice_score from cluster_insights where cluster_id = %s and is_actionable = true;",
+        "select theme_label from cluster_insights where cluster_id = %s and is_actionable = true;",
         (req.cluster_id,)
     )
     row = cur.fetchone()
@@ -50,28 +50,39 @@ def schedule_review(req: ScheduleReviewRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="Cluster not found or not actionable")
 
-    theme_label, rice = row
-    proposed_date = date.today() + timedelta(days=req.days_from_now)
-    notes = f"Priority review for: {theme_label} (RICE: {rice:.1f})"
-
     cur.execute(
-        "insert into actions_log (action_type, cluster_id, idempotency_key, status, requires_approval, request_payload) values (%s, %s, %s, %s, %s, %s);",
-        ("schedule_review", req.cluster_id, idempotency_key, "pending", True, Json({"theme_label": theme_label}))
+        "insert into actions_log (action_type, cluster_id, idempotency_key, status, requires_approval, request_payload) values (%s, %s, %s, %s, %s, %s) returning id;",
+        ("schedule_review", req.cluster_id, idempotency_key, "pending_approval", True, Json({"theme_label": row[0], "days_from_now": req.days_from_now}))
     )
-    conn.commit()
-
-    cur.execute(
-        "insert into scheduled_reviews (cluster_id, proposed_date, notes) values (%s, %s, %s) returning id;",
-        (req.cluster_id, proposed_date, notes)
-    )
-    review_id = cur.fetchone()[0]
-
-    cur.execute(
-        "update actions_log set status = %s, response_payload = %s where idempotency_key = %s;",
-        ("completed", Json({"review_id": str(review_id), "proposed_date": str(proposed_date), "notes": notes}), idempotency_key)
-    )
+    action_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
     conn.close()
 
-    return {"status": "scheduled", "review_id": str(review_id), "proposed_date": str(proposed_date)}
+    return {"status": "pending_approval", "action_id": str(action_id), "message": "Action logged, awaiting human approval before it executes."}
+
+
+def execute_schedule_review(cluster_id: int, action_id: str, days_from_now: int = 7):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("select theme_label, rice_score from cluster_insights where cluster_id = %s;", (cluster_id,))
+    theme_label, rice = cur.fetchone()
+    proposed_date = date.today() + timedelta(days=days_from_now)
+    notes = f"Priority review for: {theme_label} (RICE: {rice:.1f})"
+
+    cur.execute(
+        "insert into scheduled_reviews (cluster_id, proposed_date, notes) values (%s, %s, %s) returning id;",
+        (cluster_id, proposed_date, notes)
+    )
+    review_id = cur.fetchone()[0]
+
+    result = {"review_id": str(review_id), "proposed_date": str(proposed_date), "notes": notes}
+    cur.execute(
+        "update actions_log set status = 'completed', response_payload = %s where id = %s;",
+        (Json(result), action_id)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return result
