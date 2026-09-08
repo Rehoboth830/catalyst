@@ -1,9 +1,9 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
 
-required_vars = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "DATABASE_URL"]
+required_vars = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "DATABASE_URL", "GEMINI_API_KEY"]
 
 for var in required_vars:
     value = os.environ.get(var)
@@ -12,3 +12,4 @@ for var in required_vars:
         print(f"{var}: LOADED ({masked})")
     else:
         print(f"{var}: MISSING")
+
