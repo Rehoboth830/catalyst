@@ -29,6 +29,29 @@ def list_pending():
         for r in rows
     ]
 
+@router.post("/actions/{action_id}/reject")
+def reject_action(action_id: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("select status from actions_log where id = %s;", (action_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Action not found")
+
+    status = row[0]
+    if status != "pending_approval":
+        cur.close()
+        conn.close()
+        return {"status": "no_action_taken", "message": f"Action is already in status {status}, not pending."}
+
+    cur.execute("update actions_log set status = 'rejected' where id = %s;", (action_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"status": "rejected", "message": "Action will not be executed."}
+
 @router.post("/actions/{action_id}/approve")
 def approve_action(action_id: str):
     conn = get_conn()
@@ -46,11 +69,11 @@ def approve_action(action_id: str):
 
     action_type, cluster_id, payload, status = row
     if status != "pending_approval":
-        return {"status": "no_action_taken", "message": f"Action is already in status '{status}', not pending."}
+        return {"status": "no_action_taken", "message": f"Action is already in status {status}, not pending."}
 
     executor = EXECUTORS.get(action_type)
     if not executor:
-        raise HTTPException(status_code=500, detail=f"No executor registered for action_type '{action_type}'")
+        raise HTTPException(status_code=500, detail=f"No executor registered for action_type {action_type}")
 
     result = executor(cluster_id, action_id, payload or {})
     return {"status": "approved_and_executed", "result": result}
