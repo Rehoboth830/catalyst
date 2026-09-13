@@ -68,9 +68,7 @@ export default function Home() {
           <a className="px-3 py-2 rounded-md text-sm font-medium" style={{ background: "var(--ink)", color: "var(--paper)" }}>
             Triage
           </a>
-          <a className="px-3 py-2 rounded-md text-sm" style={{ color: "var(--muted)" }}>
-            Approval Queue
-          </a>
+          <a href="/approvals" className="px-3 py-2 rounded-md text-sm" style={{ color: "var(--muted)" }}>Approval Queue</a>
           <a className="px-3 py-2 rounded-md text-sm" style={{ color: "var(--muted)" }}>
             Activity Log
           </a>
@@ -139,7 +137,7 @@ export default function Home() {
                   )}
                 </div>
                 <div className="font-mono text-xs mt-1" style={{ color: "var(--muted)" }}>
-                  {c.reach_count} reports · impact {c.impact} · effort {c.effort}
+                  {c.reach_count} reports Â· impact {c.impact} Â· effort {c.effort}
                 </div>
               </div>
               <span className="font-mono text-lg" style={{ color: "var(--ochre)" }}>
