@@ -22,7 +22,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8000/clusters")
+    fetch("http://localhost:8001/clusters")
       .then((res) => {
         if (!res.ok) throw new Error("Backend returned " + res.status);
         return res.json();

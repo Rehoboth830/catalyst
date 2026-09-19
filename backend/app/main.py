@@ -1,9 +1,10 @@
-﻿import os
+import os
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from app.auth import require_api_key
 from app.tools.create_ticket import router as create_ticket_router
 from app.tools.draft_stakeholder_update import router as draft_update_router
 from app.tools.schedule_review import router as schedule_review_router
@@ -19,9 +20,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(create_ticket_router)
-app.include_router(draft_update_router)
-app.include_router(schedule_review_router)
+app.include_router(create_ticket_router, dependencies=[Depends(require_api_key)])
+app.include_router(draft_update_router, dependencies=[Depends(require_api_key)])
+app.include_router(schedule_review_router, dependencies=[Depends(require_api_key)])
 app.include_router(approval_router)
 app.include_router(clusters_router)
 

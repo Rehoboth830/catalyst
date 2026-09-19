@@ -22,7 +22,7 @@ export default function ApprovalQueue() {
   const [lastResult, setLastResult] = useState<{ id: string; status: string; detail: string } | null>(null);
 
   const fetchPending = () => {
-    fetch("http://localhost:8000/actions/pending")
+    fetch("http://localhost:8001/actions/pending")
       .then((res) => res.json())
       .then((data) => {
         setActions(data);
@@ -36,9 +36,7 @@ export default function ApprovalQueue() {
 
   const handleDecision = async (actionId: string, decision: "approve" | "reject") => {
     setProcessing(actionId);
-    const res = await fetch("http://localhost:8000/actions/" + actionId + "/" + decision, {
-      method: "POST",
-    });
+    const res = await fetch("http://localhost:8001/actions/" + actionId + "/" + decision, { method: "POST", headers: { "X-API-Key": "sIG08LTrOC5cW7vMExywja9Q1PlpVYU2" } });
     const data = await res.json();
     setLastResult({
       id: actionId,

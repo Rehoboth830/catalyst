@@ -1,6 +1,7 @@
-﻿import os
+import os
 import psycopg2
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.auth import require_api_key
 from app.tools.draft_stakeholder_update import execute_draft_stakeholder_update
 from app.tools.schedule_review import execute_schedule_review
 
@@ -29,7 +30,7 @@ def list_pending():
         for r in rows
     ]
 
-@router.post("/actions/{action_id}/reject")
+@router.post("/actions/{action_id}/reject", dependencies=[Depends(require_api_key)])
 def reject_action(action_id: str):
     conn = get_conn()
     cur = conn.cursor()
@@ -52,7 +53,7 @@ def reject_action(action_id: str):
     conn.close()
     return {"status": "rejected", "message": "Action will not be executed."}
 
-@router.post("/actions/{action_id}/approve")
+@router.post("/actions/{action_id}/approve", dependencies=[Depends(require_api_key)])
 def approve_action(action_id: str):
     conn = get_conn()
     cur = conn.cursor()
