@@ -1,6 +1,7 @@
 import os
 import psycopg2
 from fastapi import APIRouter, HTTPException, Depends
+from psycopg2.extras import Json
 from app.auth import require_api_key
 from app.tools.draft_stakeholder_update import execute_draft_stakeholder_update
 from app.tools.schedule_review import execute_schedule_review
@@ -34,21 +35,24 @@ def list_pending():
 def reject_action(action_id: str):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("select status from actions_log where id = %s;", (action_id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Action not found")
 
-    status = row[0]
-    if status != "pending_approval":
-        cur.close()
-        conn.close()
-        return {"status": "no_action_taken", "message": f"Action is already in status {status}, not pending."}
-
-    cur.execute("update actions_log set status = 'rejected' where id = %s;", (action_id,))
+    # Atomic claim: only one concurrent request can win this WHERE clause
+    cur.execute(
+        "update actions_log set status = 'rejected' where id = %s and status = 'pending_approval' returning id;",
+        (action_id,)
+    )
+    claimed = cur.fetchone()
     conn.commit()
+
+    if not claimed:
+        cur.execute("select status from actions_log where id = %s;", (action_id,))
+        existing = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Action not found")
+        return {"status": "no_action_taken", "message": f"Action is already in status {existing[0]}, not pending."}
+
     cur.close()
     conn.close()
     return {"status": "rejected", "message": "Action will not be executed."}
@@ -57,24 +61,48 @@ def reject_action(action_id: str):
 def approve_action(action_id: str):
     conn = get_conn()
     cur = conn.cursor()
+
+    # Atomic claim FIRST, before any execution - this is what closes the race
     cur.execute(
-        "select action_type, cluster_id, request_payload, status from actions_log where id = %s;",
+        "update actions_log set status = 'approved_processing' where id = %s and status = 'pending_approval' returning action_type, cluster_id, request_payload;",
         (action_id,)
     )
-    row = cur.fetchone()
+    claimed = cur.fetchone()
+    conn.commit()
+
+    if not claimed:
+        cur.execute("select status from actions_log where id = %s;", (action_id,))
+        existing = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Action not found")
+        return {"status": "no_action_taken", "message": f"Action is already in status {existing[0]}, not pending."}
+
+    action_type, cluster_id, payload = claimed
     cur.close()
     conn.close()
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Action not found")
-
-    action_type, cluster_id, payload, status = row
-    if status != "pending_approval":
-        return {"status": "no_action_taken", "message": f"Action is already in status {status}, not pending."}
-
     executor = EXECUTORS.get(action_type)
     if not executor:
+        _mark_failed(action_id, f"No executor registered for action_type {action_type}")
         raise HTTPException(status_code=500, detail=f"No executor registered for action_type {action_type}")
 
-    result = executor(cluster_id, action_id, payload or {})
+    try:
+        result = executor(cluster_id, action_id, payload or {})
+    except Exception as e:
+        _mark_failed(action_id, str(e))
+        raise HTTPException(status_code=502, detail=f"Execution failed after claim: {e}")
+
     return {"status": "approved_and_executed", "result": result}
+
+def _mark_failed(action_id: str, error: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "update actions_log set status = 'approval_failed', error_message = %s where id = %s;",
+        (error[:500], action_id)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
